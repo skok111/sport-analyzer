@@ -1,53 +1,94 @@
 import requests
 import os
+import csv
+import time
 from dotenv import load_dotenv
 
-# 1. Wczytujemy tajny sejf
+# 1. Setup
 load_dotenv()
 CLIENT_ID = os.getenv('STRAVA_CLIENT_ID')
 CLIENT_SECRET = os.getenv('STRAVA_CLIENT_SECRET')
 REFRESH_TOKEN = os.getenv('STRAVA_REFRESH_TOKEN')
+nazwa_pliku = 'moje_treningi.csv'
 
-print(f"Sejf wczytany! Client ID: {CLIENT_ID}")
-print("🔄 Wyrabiam nowy bilet dostępu...")
+def pobierz_token():
+    auth_url = "https://www.strava.com/oauth/token"
+    payload = {
+        'client_id': CLIENT_ID,
+        'client_secret': CLIENT_SECRET,
+        'refresh_token': REFRESH_TOKEN,
+        'grant_type': 'refresh_token'
+    }
+    res = requests.post(auth_url, data=payload)
+    return res.json().get('access_token')
 
-# 2. Odświeżanie tokenu (magia, dzięki której kod działa zawsze)
-auth_url = "https://www.strava.com/oauth/token"
-auth_payload = {
-    'client_id': CLIENT_ID,
-    'client_secret': CLIENT_SECRET,
-    'refresh_token': REFRESH_TOKEN,
-    'grant_type': 'refresh_token'
-}
-
-auth_response = requests.post(auth_url, data=auth_payload)
-
-if auth_response.status_code == 200:
-    nowy_access_token = auth_response.json()['access_token']
-    print("✅ Nowy bilet wygenerowany! Pobieram dane...\n")
-    
-    # 3. Pobieranie treningów z NOWYM biletem
-    url = "https://www.strava.com/api/v3/athlete/activities"
-    headers = {"Authorization": f"Bearer {nowy_access_token}"}
-    
-    response = requests.get(url, headers=headers)
-    
-    if response.status_code == 200:
-        treningi = response.json()
-        if len(treningi) > 0:
-            ostatni_trening = treningi[0]
-            nazwa = ostatni_trening['name']
-            dystans_km = round(ostatni_trening['distance'] / 1000, 2)
-            czas_min = round(ostatni_trening['moving_time'] / 60, 2)
-
-            print("🏃 MAMY TO! Twój ostatni trening:")
-            print(f"👉 Tytuł: {nazwa}")
-            print(f"👉 Dystans: {dystans_km} km")
-            print(f"👉 Czas ruchu: {czas_min} min")
-            print("\nPełen sukces! Ten kod jest kuloodporny i nie wygaśnie.")
+# 2. Sprawdzamy "punkt startowy" (ostatni trening w CSV)
+last_timestamp = 0
+if os.path.isfile(nazwa_pliku):
+    with open(nazwa_pliku, 'r', encoding='utf-8') as f:
+        rows = list(csv.reader(f))
+        if len(rows) > 1:
+            # Szukamy ostatniego zapisanego treningu, by wyciągnąć jego datę (Unix Timestamp)
+            # Uwaga: Strava API najlepiej filtruje po 'after' używając Epoch Timestamp
+            # Na potrzeby tego skryptu uprościmy to: pobierzemy wszystko i odfiltrujemy ID
+            last_ids = [row[0] for row in rows[1:]]
         else:
-            print("Konto puste, brak treningów.")
-    else:
-        print("Błąd pobierania danych z API.")
+            last_ids = []
 else:
-    print("Błąd odświeżania tokenu. Sprawdź plik .env!")
+    last_ids = []
+
+token = pobierz_token()
+headers = {"Authorization": f"Bearer {token}"}
+url = "https://www.strava.com/api/v3/athlete/activities"
+
+wszystkie_nowe = []
+page = 1
+pobieraj_dalej = True
+
+print("🚀 Rozpoczynam inteligentną synchronizację...")
+
+# 3. Pętla pobierająca STRONAMI (obsłuży nawet 10 000 treningów)
+while pobieraj_dalej:
+    print(f"📡 Pobieram stronę {page}...")
+    params = {'per_page': 100, 'page': page}
+    response = requests.get(url, headers=headers, params=params)
+    
+    if response.status_code != 200:
+        print("❌ Błąd API!")
+        break
+        
+    batch = response.json()
+    
+    if not batch: # Jeśli strona jest pusta, znaczy że pobraliśmy wszystko
+        break
+        
+    for t in batch:
+        if str(t['id']) in last_ids:
+            pobieraj_dalej = False # Znaleźliśmy trening, który już mamy - koniec!
+            break
+        wszystkie_nowe.append(t)
+    
+    if pobieraj_dalej:
+        page += 1
+        time.sleep(0.5) # Mała przerwa, żeby nie przeciążyć API (dobra praktyka)
+
+# 4. Zapis chronologiczny
+if wszystkie_nowe:
+    wszystkie_nowe.reverse() # Najstarsze z nowych na górę
+    plik_istnieje = os.path.isfile(nazwa_pliku)
+    
+    with open(nazwa_pliku, mode='a', newline='', encoding='utf-8') as f:
+        writer = csv.writer(f)
+        if not plik_istnieje:
+            writer.writerow(['ID', 'Data', 'Nazwa', 'Dystans_km', 'Czas_min'])
+        
+        for t in wszystkie_nowe:
+            data = t['start_date_local'][:10]
+            dystans = round(t['distance'] / 1000, 2)
+            czas = round(t['moving_time'] / 60, 2)
+            writer.writerow([t['id'], data, t['name'], dystans, czas])
+            print(f"✨ Zsynchronizowano: {data} - {t['name']}")
+
+    print(f"\n✅ Gotowe! Dodano {len(wszystkie_nowe)} nowych treningów.")
+else:
+    print("\n✅ Wszystko aktualne. Brak nowych treningów do pobrania.")
