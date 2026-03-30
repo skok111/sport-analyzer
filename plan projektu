@@ -1,0 +1,26 @@
+1. strona pobiera dane ze stravy (w późniejszym czasie moze tez z innych aplikacji)
+2. Połączenie stravy z zegarkiem albo innymi urzadzenimi z ktorych chemy zbierac dane
+3. Zaprojektowanie bazy danych (Użytwkonicy - dane logowania, aktywnosci - treningi pobrane ze stravy, ustawienia medyczne - max tętno, dozwolona liczba treningow, 
+	plany treningowe - to co sam wpisze uzytkownik)
+4. Logowanie (autoryzacja) - (najlepiej użyć OAuth2, czyli przycisku "Zaloguj przez Strava"). Dzięki temu automatycznie dostaniesz tokeny dostępu do konta użytkownika.
+5. Napisz skrypt (backend), który na żądanie (lub np. raz dziennie) odpytuje Stravę o nowe treningi i zapisuje je w Twojej bazie danych.
+6. Wyglad strony - panel z danymi, podsumowanie ( ile wszystkiego w danym miesiacu), jakies wykresy z danymi itd.
+7. Utworzenie panelu dla trenera/fizjoterapeuty/lekarza/zawodnika - Możesz stworzyć dwa typy kont: "Zawodnik" i "Opiekun". Zawodnik tylko trenuje i jego dane lecą ze Stravy/zegarka 
+	do aplikacji. Opiekun (lekarz/trener) loguje się na swoim komputerze, ma podgląd do Twoich danych i to on w panelu ustawia: "W tym tygodniu pacjent może przebiec max 10 km, tętno max 140".
+8. Zaawansowana, niestandradowa analiza danych - Możesz stworzyć zaawansowany system reguł (tzw. "Rule Engine"). Na przykład: aplikacja sama analizuje Twoje tętno spoczynkowe. Jeśli przez 3 dni 
+	z rzędu jest podwyższone (co często zwiastuje chorobę lub przetrenowanie), system automatycznie "kasuje" Twój zaplanowany na jutro ciężki trening i wstawia "Dzień restu", wysyłając Ci 
+	powiadomienie z uzasadnieniem.
+9. Strona moze pobierac dane tez z innych aplikacji jak np pogoda (Możesz zrobić analizę: "Kiedy jest powyżej 25°C, Twoje tempo biegu spada o 15%, a tętno rośnie o 10 uderzeń. Sugestia: jutro ma 
+	być upał, zaplanuj trening na 6:00 rano, a nie na 16:00". Samsung Health nie koreluje Twoich treningów z zewnętrzną pogodą z taką dokładnością.)
+10. Plany treningowe i interakcja,kalendarz lub liste użytkjowników gdzie uzytkownik moze dodac plan na przyszly tydzien, mozna dodtego dodac sugestie według zalecen medycznych itd.
+
+
+###### do mojego konta stravy
+Client ID: 218277 
+Client Secret: 36e9b398cd47812b73ae014b718dbea495875c77
+
+https://www.strava.com/oauth/authorize?client_id=218277&response_type=code&redirect_uri=http://localhost&approval_prompt=force&scope=activity:read_all
+
+##### to z vscode
+Access Token (Bilet na teraz): 98033ece6a36dbfe241e6289592baef15057006e
+Refresh Token (Bilet na zapas): 7f552d2fd62d0f0f018615574efc6368dcf89472
