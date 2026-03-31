@@ -9,9 +9,9 @@ load_dotenv()
 CLIENT_ID = os.getenv('STRAVA_CLIENT_ID')
 CLIENT_SECRET = os.getenv('STRAVA_CLIENT_SECRET')
 REFRESH_TOKEN = os.getenv('STRAVA_REFRESH_TOKEN')
-nazwa_pliku = 'moje_treningi.csv'
+CSV_FILE = 'my_workouts.csv'
 
-def pobierz_token():
+def get_access_token():
     auth_url = "https://www.strava.com/oauth/token"
     payload = {
         'client_id': CLIENT_ID,
@@ -19,76 +19,76 @@ def pobierz_token():
         'refresh_token': REFRESH_TOKEN,
         'grant_type': 'refresh_token'
     }
-    res = requests.post(auth_url, data=payload)
-    return res.json().get('access_token')
+    response = requests.post(auth_url, data=payload)
+    return response.json().get('access_token')
 
-# 2. Sprawdzamy "punkt startowy" (ostatni trening w CSV)
-last_timestamp = 0
-if os.path.isfile(nazwa_pliku):
-    with open(nazwa_pliku, 'r', encoding='utf-8') as f:
+# 2. Check the "starting point" (last activity in CSV)
+if os.path.isfile(CSV_FILE):
+    with open(CSV_FILE, 'r', encoding='utf-8') as f:
         rows = list(csv.reader(f))
         if len(rows) > 1:
-            # Szukamy ostatniego zapisanego treningu, by wyciągnąć jego datę (Unix Timestamp)
-            # Uwaga: Strava API najlepiej filtruje po 'after' używając Epoch Timestamp
-            # Na potrzeby tego skryptu uprościmy to: pobierzemy wszystko i odfiltrujemy ID
+            # Extract IDs of already saved activities
             last_ids = [row[0] for row in rows[1:]]
         else:
             last_ids = []
 else:
     last_ids = []
 
-token = pobierz_token()
+token = get_access_token()
 headers = {"Authorization": f"Bearer {token}"}
 url = "https://www.strava.com/api/v3/athlete/activities"
 
-wszystkie_nowe = []
+all_new_activities = []
 page = 1
-pobieraj_dalej = True
+keep_fetching = True
 
-print("🚀 Rozpoczynam inteligentną synchronizację...")
+print("🚀 Starting smart synchronization...")
 
-# 3. Pętla pobierająca STRONAMI (obsłuży nawet 10 000 treningów)
-while pobieraj_dalej:
-    print(f"📡 Pobieram stronę {page}...")
+# 3. Fetching loop (handles pagination)
+while keep_fetching:
+    print(f"📡 Fetching page {page}...")
     params = {'per_page': 100, 'page': page}
     response = requests.get(url, headers=headers, params=params)
     
     if response.status_code != 200:
-        print("❌ Błąd API!")
+        print("❌ API Error!")
         break
         
     batch = response.json()
     
-    if not batch: # Jeśli strona jest pusta, znaczy że pobraliśmy wszystko
+    if not batch: # If page is empty, we've fetched everything
         break
         
-    for t in batch:
-        if str(t['id']) in last_ids:
-            pobieraj_dalej = False # Znaleźliśmy trening, który już mamy - koniec!
+    for activity in batch:
+        if str(activity['id']) in last_ids:
+            keep_fetching = False # Found an activity we already have - stop!
             break
-        wszystkie_nowe.append(t)
+        all_new_activities.append(activity)
     
-    if pobieraj_dalej:
+    if keep_fetching:
         page += 1
-        time.sleep(0.5) # Mała przerwa, żeby nie przeciążyć API (dobra praktyka)
+        time.sleep(0.5) # Small pause to avoid rate limits
 
-# 4. Zapis chronologiczny
-if wszystkie_nowe:
-    wszystkie_nowe.reverse() # Najstarsze z nowych na górę
-    plik_istnieje = os.path.isfile(nazwa_pliku)
+# 4. Save chronologically
+if all_new_activities:
+    all_new_activities.reverse() # Oldest of the new on top
+    file_exists = os.path.isfile(CSV_FILE)
     
-    with open(nazwa_pliku, mode='a', newline='', encoding='utf-8') as f:
+    with open(CSV_FILE, mode='a', newline='', encoding='utf-8') as f:
         writer = csv.writer(f)
-        if not plik_istnieje:
-            writer.writerow(['ID', 'Data', 'Nazwa', 'Dystans_km', 'Czas_min'])
+        if not file_exists:
+            # Added 'Type' column here!
+            writer.writerow(['ID', 'Date', 'Name', 'Type', 'Distance_km', 'Duration_min'])
         
-        for t in wszystkie_nowe:
-            data = t['start_date_local'][:10]
-            dystans = round(t['distance'] / 1000, 2)
-            czas = round(t['moving_time'] / 60, 2)
-            writer.writerow([t['id'], data, t['name'], dystans, czas])
-            print(f"✨ Zsynchronizowano: {data} - {t['name']}")
+        for activity in all_new_activities:
+            date = activity['start_date_local'][:10]
+            activity_type = activity['type'] # Extracting the activity type
+            distance_km = round(activity['distance'] / 1000, 2)
+            duration_min = round(activity['moving_time'] / 60, 2)
+            
+            writer.writerow([activity['id'], date, activity['name'], activity_type, distance_km, duration_min])
+            print(f"✨ Synced: {date} - [{activity_type}] {activity['name']}")
 
-    print(f"\n✅ Gotowe! Dodano {len(wszystkie_nowe)} nowych treningów.")
+    print(f"\n✅ Done! Added {len(all_new_activities)} new activities.")
 else:
-    print("\n✅ Wszystko aktualne. Brak nowych treningów do pobrania.")
+    print("\n✅ Up to date. No new activities to fetch.")
