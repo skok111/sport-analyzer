@@ -24,3 +24,8 @@ https://www.strava.com/oauth/authorize?client_id=218277&response_type=code&redir
 ##### to z vscode
 Access Token (Bilet na teraz): 98033ece6a36dbfe241e6289592baef15057006e
 Refresh Token (Bilet na zapas): 7f552d2fd62d0f0f018615574efc6368dcf89472
+
+wejscie do venv: source venv/bin/activate
+pushowanie na github: git push -u origin main
+
+startowanie strony: streamlit run app.py
