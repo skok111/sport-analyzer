@@ -26,6 +26,7 @@ Access Token (Bilet na teraz): 98033ece6a36dbfe241e6289592baef15057006e
 Refresh Token (Bilet na zapas): 7f552d2fd62d0f0f018615574efc6368dcf89472
 
 wejscie do venv: source venv/bin/activate
+dodanie commita na github:  git commit -m "Nazwa commita"  
 pushowanie na github: git push -u origin main
 
 startowanie strony: streamlit run app.py

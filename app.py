@@ -213,7 +213,7 @@ if st.session_state.current_view == 'Home':
 
     # === DASHBOARD ===
     st.divider()
-    st.markdown("### 📈 Overall Progress")
+    st.markdown("Overall Progress")
     
     if not df.empty and 'Type' in df.columns:
         df['Date'] = pd.to_datetime(df['Date'])
@@ -224,7 +224,7 @@ if st.session_state.current_view == 'Home':
             s = int((total_min * 60) % 60)
             return f"{h:02d}:{m:02d}:{s:02d}"
 
-        st.markdown("#### 📊 All-Time Stats")
+        st.markdown("All-Time Stats")
         total_workouts = len(df)
         total_time_min = df['Duration_min'].sum()
         run_dist = df[df['Type'] == 'Run']['Distance_km'].sum()
@@ -238,7 +238,7 @@ if st.session_state.current_view == 'Home':
         
         st.divider()
 
-        st.markdown("#### 📉 Recent Activity (Last 14 Days)")
+        st.markdown("Recent Activity (Last 14 Days)")
         today = pd.to_datetime('today').normalize()
         fourteen_days_ago = today - pd.Timedelta(days=14)
         recent_df = df[df['Date'] >= fourteen_days_ago].copy()
@@ -265,7 +265,7 @@ if st.session_state.current_view == 'Home':
             st.info("No activities in the last 14 days. Time to get moving! 🏃‍♂️🚴‍♂️")
             
         st.divider()
-        st.markdown("#### 🍩 Workout Distribution")
+        st.markdown("Workout Distribution")
         
         type_counts = df['Type'].value_counts().reset_index()
         type_counts.columns = ['Type', 'Count']
@@ -434,15 +434,58 @@ elif st.session_state.current_view == 'Run':
             st.altair_chart(chart, use_container_width=True)
             
             st.divider()
-            st.markdown("Workout History")
-            display_df = runs[['Date', 'Name', 'Distance_km', 'Duration_min', 'Pace_min_km']].copy()
+            
+            # Inicjalizacja stanu dla trybu edycji
+            if 'edit_mode_run' not in st.session_state:
+                st.session_state.edit_mode_run = False
+
+            # Nagłówek i przycisk w jednym rzędzie
+            col_title, col_btn = st.columns([3, 1])
+            with col_title:
+                st.markdown("Workout History")
+            with col_btn:
+                # Przycisk zmienia tekst w zależności od trybu
+                btn_text = "❌ Cancel" if st.session_state.edit_mode_run else "✏️ Manage"
+                if st.button(btn_text, key="toggle_edit_run", use_container_width=True):
+                    st.session_state.edit_mode_run = not st.session_state.edit_mode_run
+                    st.rerun()
+            
+            # Przygotowanie danych
+            display_df = runs[['ID', 'Date', 'Name', 'Distance_km', 'Duration_min', 'Pace_min_km']].copy()
             display_df = display_df.sort_values(by='Date', ascending=False)
             display_df['Date'] = display_df['Date'].dt.strftime('%Y-%m-%d')
             display_df['Pace /km'] = display_df['Pace_min_km'].apply(format_pace)
             display_df = display_df.drop(columns=['Pace_min_km'])
             display_df = display_df.rename(columns={'Distance_km': 'Distance (km)', 'Duration_min': 'Time (min)'})
             
-            st.dataframe(display_df, use_container_width=True, hide_index=True)
+            # Zależnie od trybu wyświetlamy interaktywną tabelę lub zwykłą
+            if st.session_state.edit_mode_run:
+                display_df.insert(0, "Delete", False)
+                edited_df = st.data_editor(
+                    display_df, 
+                    use_container_width=True, 
+                    hide_index=True,
+                    column_config={
+                        "Delete": st.column_config.CheckboxColumn("🗑️ Delete", default=False),
+                        "ID": None # Ukrywamy ID
+                    }
+                )
+                
+                selected_ids = edited_df[edited_df['Delete'] == True]['ID'].tolist()
+                
+                if len(selected_ids) > 0:
+                    if st.button("🚨 Delete Selected", key="del_run_btn"):
+                        df_to_save = df[~df['ID'].isin(selected_ids)]
+                        df_to_save.to_csv('my_workouts.csv', index=False)
+                        st.session_state.edit_mode_run = False # Wychodzimy z trybu edycji po usunięciu
+                        st.success("Deleted successfully!")
+                        import time as t
+                        t.sleep(1)
+                        st.rerun()
+            else:
+                # Zwykły widok tabeli bez trybu edycji (usuwamy kolumnę ID, żeby ładnie wyglądało)
+                st.dataframe(display_df.drop(columns=['ID']), use_container_width=True, hide_index=True)
+
         else:
             st.info("Nie znaleziono żadnych treningów biegowych. Czas wyjść pobiegać! 🏃‍♂️")
     else:
@@ -520,7 +563,7 @@ elif st.session_state.current_view == 'Ride':
             c4.metric("Avg Speed", f"{avg_speed:.1f} km/h")
             
             st.divider()
-            st.markdown("### 📊 Last 7 Days")
+            st.markdown("Last 7 Days")
             today = pd.to_datetime('today').normalize()
             seven_days_ago = today - pd.Timedelta(days=7)
             recent_rides = rides[rides['Date'] >= seven_days_ago]
@@ -544,15 +587,55 @@ elif st.session_state.current_view == 'Ride':
             else:
                 st.info("No rides in the last 7 days. Time to get back on the bike! 🚲")
                 
-            st.markdown(" All Rides History")
-            display_rides = rides[['Date', 'Name', 'Distance_km', 'Duration_HHMMSS', 'Speed_km_h']].copy()
+            st.divider()
+            
+            # Inicjalizacja stanu dla trybu edycji rowerowej
+            if 'edit_mode_ride' not in st.session_state:
+                st.session_state.edit_mode_ride = False
+
+            col_title_r, col_btn_r = st.columns([3, 1])
+            with col_title_r:
+                st.markdown("All Rides History")
+            with col_btn_r:
+                btn_text_r = "❌ Cancel" if st.session_state.edit_mode_ride else "✏️ Manage"
+                if st.button(btn_text_r, key="toggle_edit_ride", use_container_width=True):
+                    st.session_state.edit_mode_ride = not st.session_state.edit_mode_ride
+                    st.rerun()
+            
+            # Przygotowanie danych (musimy upewnić się, że pobieramy też 'ID')
+            display_rides = rides[['ID', 'Date', 'Name', 'Distance_km', 'Duration_HHMMSS', 'Speed_km_h']].copy()
             display_rides['Date'] = display_rides['Date'].dt.strftime('%Y-%m-%d')
             display_rides['Distance_km'] = display_rides['Distance_km'].apply(lambda x: f"{x:.2f} km")
             display_rides['Speed_km_h'] = display_rides['Speed_km_h'].apply(lambda x: f"{x:.1f} km/h")
-            
             display_rides = display_rides.rename(columns={'Date': 'Date', 'Name': 'Training Name', 'Distance_km': 'Distance', 'Duration_HHMMSS': 'Duration', 'Speed_km_h': 'Avg Speed'})
             display_rides = display_rides.sort_index(ascending=False)
-            st.dataframe(display_rides, hide_index=True, use_container_width=True)
+            
+            if st.session_state.edit_mode_ride:
+                display_rides.insert(0, "Delete", False)
+                edited_rides = st.data_editor(
+                    display_rides, 
+                    hide_index=True, 
+                    use_container_width=True,
+                    column_config={
+                        "Delete": st.column_config.CheckboxColumn("🗑️ Delete", default=False),
+                        "ID": None # Ukrywamy ID, jest potrzebne tylko w tle do usuwania
+                    }
+                )
+                
+                selected_ride_ids = edited_rides[edited_rides['Delete'] == True]['ID'].tolist()
+                
+                if len(selected_ride_ids) > 0:
+                    if st.button("🚨 Delete Selected", key="del_ride_btn"):
+                        df_to_save = df[~df['ID'].isin(selected_ride_ids)]
+                        df_to_save.to_csv('my_workouts.csv', index=False)
+                        st.session_state.edit_mode_ride = False
+                        st.success("Deleted successfully!")
+                        import time as t
+                        t.sleep(1)
+                        st.rerun()
+            else:
+                # Jeśli nie jesteśmy w trybie edycji, po prostu pokazujemy tabelę bez kolumny ID
+                st.dataframe(display_rides.drop(columns=['ID']), hide_index=True, use_container_width=True)
         else:
             st.info("No cycling workouts found.")
 
@@ -567,7 +650,9 @@ elif st.session_state.current_view == 'Records':
         st.rerun()
         
     st.header("Personal Bests")
+    
     if not df.empty:
+        # --- REKORDY BIEGOWE ---
         runs = df[df['Type'] == 'Run'].copy()
         if not runs.empty:
             st.markdown("Running Records")
@@ -596,9 +681,47 @@ elif st.session_state.current_view == 'Records':
                     st.metric(label=f"{best_pace_run['Name']} ({date_str})", value=f"{format_pace(best_pace_run['Pace_min_km'])} /km")
                 else:
                     st.metric(label="N/A", value="-:-- /km")
-            st.divider()
-            st.markdown("<p style='text-align: center; color: gray;'>Keep pushing your limits! 🔥</p>", unsafe_allow_html=True)
         else:
-            st.info("Brak treningów biegowych, żeby wyliczyć rekordy. Czas zrobić pierwszy trening! 🏃‍♂️")
+            st.info("Brak treningów biegowych, żeby wyliczyć rekordy. 🏃‍♂️")
+
+        st.divider()
+
+        # --- REKORDY ROWEROWE ---
+        rides = df[df['Type'] == 'Ride'].copy()
+        if not rides.empty:
+            st.markdown("Cycling Records")
+            # Obliczamy prędkość w km/h, jeśli jej nie ma
+            rides['Speed_km_h'] = rides['Distance_km'] / (rides['Duration_min'] / 60)
+            
+            longest_ride = rides.loc[rides['Distance_km'].idxmax()]
+            longest_ride_time = rides.loc[rides['Duration_min'].idxmax()]
+            best_speed_ride = rides.loc[rides['Speed_km_h'].idxmax()]
+            
+            # Funkcja do ładnego formatowania czasu dla roweru (HH:MM:SS)
+            def format_ride_duration(total_min):
+                h = int(total_min // 60)
+                m = int(total_min % 60)
+                s = int((total_min * 60) % 60)
+                return f"{h:02d}:{m:02d}:{s:02d}"
+
+            r_col1, r_col2, r_col3 = st.columns(3)
+            with r_col1:
+                st.success("Longest Distance")
+                date_str = longest_ride['Date'].strftime('%Y-%m-%d')
+                st.metric(label=f"{longest_ride['Name']} ({date_str})", value=f"{longest_ride['Distance_km']:.2f} km")
+            with r_col2:
+                st.info("Longest Time")
+                date_str = longest_ride_time['Date'].strftime('%Y-%m-%d')
+                st.metric(label=f"{longest_ride_time['Name']} ({date_str})", value=format_ride_duration(longest_ride_time['Duration_min']))
+            with r_col3:
+                st.warning("⚡ Best Avg Speed")
+                date_str = best_speed_ride['Date'].strftime('%Y-%m-%d')
+                st.metric(label=f"{best_speed_ride['Name']} ({date_str})", value=f"{best_speed_ride['Speed_km_h']:.1f} km/h")
+        else:
+            st.info("Brak treningów rowerowych, żeby wyliczyć rekordy. 🚴‍♂️")
+
+        st.divider()
+        st.markdown("<p style='text-align: center; color: gray;'>Keep pushing your limits! 🔥</p>", unsafe_allow_html=True)
+        
     else:
         st.warning("Brak danych! Upewnij się, że plik my_workouts.csv nie jest pusty.")
