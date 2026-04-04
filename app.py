@@ -4,6 +4,125 @@ import altair as alt
 import os
 import json
 import requests
+from supabase import create_client, Client
+
+# ==========================================
+# ☁️ POŁĄCZENIE Z BAZĄ SUPABASE
+# ==========================================
+@st.cache_resource
+def init_connection():
+    url = st.secrets["supabase"]["url"]
+    key = st.secrets["supabase"]["key"]
+    return create_client(url, key)
+
+supabase = init_connection()
+
+# ==========================================
+# 🔒 SYSTEM LOGOWANIA I ONBOARDINGU
+# ==========================================
+
+# 1. Inicjalizacja zmiennych sesyjnych
+if 'logged_in' not in st.session_state:
+    st.session_state.logged_in = False
+if 'onboarding_done' not in st.session_state:
+    st.session_state.onboarding_done = False
+
+# 2. EKRAN LOGOWANIA
+# 2. EKRAN LOGOWANIA / REJESTRACJI
+if not st.session_state.logged_in:
+    st.markdown("<h1 style='text-align: center;'>Welcome to Sport Analyzer</h1>", unsafe_allow_html=True)
+    st.markdown("<p style='text-align: center;'>Log in or create an account to continue</p>", unsafe_allow_html=True)
+    
+    st.divider()
+    
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        # Tworzymy dwie zakładki dla lepszego interfejsu
+        tab1, tab2 = st.tabs(["🔒 Log In", "📝 Register"])
+        
+        # --- ZAKŁADKA LOGOWANIA ---
+        with tab1:
+            login_email = st.text_input("Email address", key="log_email")
+            login_pass = st.text_input("Password", type="password", key="log_pass")
+            
+            if st.button("Log In", use_container_width=True, type="primary"):
+                try:
+                    # Prawdziwe logowanie przez Supabase
+                    response = supabase.auth.sign_in_with_password({"email": login_email, "password": login_pass})
+                    st.session_state.logged_in = True
+                    # Zapisujemy ID użytkownika w sesji (bardzo ważne do kolejnych kroków!)
+                    st.session_state.user_id = response.user.id 
+                    st.rerun()
+                except Exception as e:
+                    st.error("Incorrect email or password!")
+            
+            st.markdown("<br>", unsafe_allow_html=True)
+            # Atrapa przycisku Google (czeka na swój moment)
+            st.button("🌐 Log in with Google (Coming soon)", use_container_width=True, disabled=True)
+            
+            st.markdown("<br>", unsafe_allow_html=True)
+            st.markdown("<div style='text-align: center;'>[Forgot password?](#)</div>", unsafe_allow_html=True)
+
+        # --- ZAKŁADKA REJESTRACJI ---
+        with tab2:
+            reg_email = st.text_input("Email address", key="reg_email")
+            reg_pass = st.text_input("Password", type="password", key="reg_pass")
+            reg_pass_conf = st.text_input("Confirm Password", type="password", key="reg_pass_conf")
+            
+            if st.button("Create Account", use_container_width=True, type="primary"):
+                if reg_pass != reg_pass_conf:
+                    st.error("Passwords do not match!")
+                elif len(reg_pass) < 6:
+                    st.error("Password must be at least 6 characters long.")
+                else:
+                    try:
+                        # Zakładanie konta w Supabase
+                        response = supabase.auth.sign_up({"email": reg_email, "password": reg_pass})
+                        st.success("Account created successfully! You can now log in.")
+                    except Exception as e:
+                        st.error(f"Error creating account: {e}")
+
+    # Zatrzymujemy ładowanie reszty aplikacji, dopóki ktoś się nie zaloguje!
+    st.stop()
+
+# 3. EKRAN ONBOARDINGU (Połączenie z apkami)
+if st.session_state.logged_in and not st.session_state.onboarding_done:
+    st.markdown("<h2 style='text-align: center;'>Connect Your Apps 🚀</h2>", unsafe_allow_html=True)
+    st.markdown("<p style='text-align: center;'>Sync your favorite platforms to gather all data in one place.</p>", unsafe_allow_html=True)
+    st.divider()
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        st.info("🟧 **Strava**")
+        st.button("Connect Strava", key="conn_strava")
+        
+        st.info("🔵 **Garmin Connect**")
+        st.button("Connect Garmin", key="conn_garmin")
+        
+        st.info("🔴 **Polar Flow**")
+        st.button("Connect Polar", key="conn_polar")
+        
+    with col2:
+        st.info("💚 **Google Fit**")
+        st.button("Connect Google Fit", key="conn_gfit")
+        
+        st.info("❤️ **Apple Health**")
+        st.button("Connect Apple Health", key="conn_apple")
+        
+        st.info("⬛ **Suunto**")
+        st.button("Connect Suunto", key="conn_suunto")
+        
+    st.divider()
+    
+    # Przycisk kończący onboarding
+    col_btn1, col_btn2, col_btn3 = st.columns([1, 2, 1])
+    with col_btn2:
+        if st.button("✅ Finish Setup & Go to Dashboard", use_container_width=True, type="primary"):
+            st.session_state.onboarding_done = True
+            st.rerun()
+            
+    # Zatrzymujemy ładowanie głównej aplikacji, dopóki nie przeklikasz onboardingu
+    st.stop()
 
 # 1. Konfiguracja Strony
 st.set_page_config(page_title="Sport Analyzer", page_icon="🏆", layout="centered")
@@ -79,21 +198,30 @@ def format_pace(decimal_pace):
 # 3. Wczytanie danych i ustawień
 user_settings = load_settings()
 
-try:
-    df = pd.read_csv('my_workouts.csv')
-    df['Date'] = pd.to_datetime(df['Date'])
-    df['Pace_min_km'] = df.apply(lambda row: row['Duration_min'] / row['Distance_km'] if row['Distance_km'] > 0 else 0, axis=1)
-    total_runs = len(df[df['Type'] == 'Run'])
-    total_rides = len(df[df['Type'] == 'Ride']) 
-except FileNotFoundError:
-    df = pd.DataFrame() 
-    total_runs = 0
-    total_rides = 0
+# ==========================================
+# 📥 POBIERANIE DANYCH Z CHMURY
+# ==========================================
+if st.session_state.logged_in and 'user_id' in st.session_state:
+    response = supabase.table("workouts").select("*").eq("user_id", st.session_state.user_id).execute()
+    
+    if len(response.data) > 0:
+        df = pd.DataFrame(response.data)
+        df['Date'] = pd.to_datetime(df['Date'])
+    else:
+        df = pd.DataFrame(columns=['ID', 'Date', 'Name', 'Type', 'Distance_km', 'Duration_min', 'Pace_min_km', 'user_id'])
+else:
+    df = pd.DataFrame(columns=['ID', 'Date', 'Name', 'Type', 'Distance_km', 'Duration_min', 'Pace_min_km', 'user_id'])
 
 # ==========================================
 # 🏠 EKRAN GŁÓWNY: KOMPAKTOWA SIATKA 3x2
 # ==========================================
 if st.session_state.current_view == 'Home':
+    if not df.empty and 'Type' in df.columns:
+        total_runs = len(df[df['Type'] == 'Run'])
+        total_rides = len(df[df['Type'] == 'Ride'])
+    else:
+        total_runs = 0
+        total_rides = 0
     
     st.markdown("""
     <style>
@@ -390,11 +518,17 @@ elif st.session_state.current_view == 'Run':
                 if new_distance > 0 and new_duration > 0:
                     import time
                     new_id = int(time.time() * 1000)
-                    new_data = pd.DataFrame({
-                        'ID': [new_id], 'Date': [new_date], 'Name': [new_name],
-                        'Type': ['Run'], 'Distance_km': [new_distance], 'Duration_min': [new_duration]
-                    })
-                    new_data.to_csv('my_workouts.csv', mode='a', header=False, index=False)
+                    new_workout = {
+                        "ID": new_id,
+                        "Date": str(new_date),  # Baza wymaga tekstu zamiast obiektu daty
+                        "Name": new_name,
+                        "Type": "Run",
+                        "Distance_km": new_distance,
+                        "Duration_min": new_duration,
+                        "Pace_min_km": round(pace, 2),
+                        "user_id": st.session_state.user_id
+                    }
+                    supabase.table("workouts").insert(new_workout).execute()
                     st.success("Training added succesfully")
                     st.rerun() 
                 else:
@@ -475,8 +609,9 @@ elif st.session_state.current_view == 'Run':
                 
                 if len(selected_ids) > 0:
                     if st.button("🚨 Delete Selected", key="del_run_btn"):
-                        df_to_save = df[~df['ID'].isin(selected_ids)]
-                        df_to_save.to_csv('my_workouts.csv', index=False)
+                        for w_id in selected_ids:
+                            # Usuwamy konkretne ID prosto z chmury
+                            supabase.table("workouts").delete().eq("ID", w_id).execute()
                         st.session_state.edit_mode_run = False # Wychodzimy z trybu edycji po usunięciu
                         st.success("Deleted successfully!")
                         import time as t
@@ -526,11 +661,17 @@ elif st.session_state.current_view == 'Ride':
                 if new_distance > 0 and total_duration_min > 0:
                     import time
                     new_id = int(time.time() * 1000)
-                    new_data = pd.DataFrame({
-                        'ID': [new_id], 'Date': [new_date], 'Name': [new_name],
-                        'Type': ['Ride'], 'Distance_km': [new_distance], 'Duration_min': [total_duration_min]
-                    })
-                    new_data.to_csv('my_workouts.csv', mode='a', header=False, index=False)
+                    new_workout = {
+                        "ID": new_id,
+                        "Date": str(new_date),
+                        "Name": new_name,
+                        "Type": "Ride",
+                        "Distance_km": new_distance,
+                        "Duration_min": total_duration_min,
+                        "Pace_min_km": round(pace, 2),
+                        "user_id": st.session_state.user_id
+                    }
+                    supabase.table("workouts").insert(new_workout).execute()
                     st.success("Cycling training added successfully!")
                     st.rerun()
                 else:
@@ -551,13 +692,13 @@ elif st.session_state.current_view == 'Ride':
                 return f"{h:02d}:{m:02d}:{s:02d}"
             
             rides['Duration_HHMMSS'] = rides['Duration_min'].apply(format_duration)
-            total_rides = len(rides) 
+            total_rides_count = len(rides) 
             total_dist = rides['Distance_km'].sum()
             avg_speed = rides['Speed_km_h'].mean()
             total_time_min = rides['Duration_min'].sum()
             
             c1, c2, c3, c4 = st.columns(4)
-            c1.metric("Total Rides", f"{total_rides}")
+            c1.metric("Total Rides", f"{total_rides_count}")
             c2.metric("Total Distance", f"{total_dist:.2f} km")
             c3.metric("Time in Saddle", format_duration(total_time_min))
             c4.metric("Avg Speed", f"{avg_speed:.1f} km/h")
@@ -595,133 +736,47 @@ elif st.session_state.current_view == 'Ride':
 
             col_title_r, col_btn_r = st.columns([3, 1])
             with col_title_r:
-                st.markdown("All Rides History")
+                st.markdown("Ride History")
             with col_btn_r:
                 btn_text_r = "❌ Cancel" if st.session_state.edit_mode_ride else "✏️ Manage"
                 if st.button(btn_text_r, key="toggle_edit_ride", use_container_width=True):
                     st.session_state.edit_mode_ride = not st.session_state.edit_mode_ride
                     st.rerun()
-            
-            # Przygotowanie danych (musimy upewnić się, że pobieramy też 'ID')
-            display_rides = rides[['ID', 'Date', 'Name', 'Distance_km', 'Duration_HHMMSS', 'Speed_km_h']].copy()
-            display_rides['Date'] = display_rides['Date'].dt.strftime('%Y-%m-%d')
-            display_rides['Distance_km'] = display_rides['Distance_km'].apply(lambda x: f"{x:.2f} km")
-            display_rides['Speed_km_h'] = display_rides['Speed_km_h'].apply(lambda x: f"{x:.1f} km/h")
-            display_rides = display_rides.rename(columns={'Date': 'Date', 'Name': 'Training Name', 'Distance_km': 'Distance', 'Duration_HHMMSS': 'Duration', 'Speed_km_h': 'Avg Speed'})
-            display_rides = display_rides.sort_index(ascending=False)
-            
+
+            display_df_r = rides[['ID', 'Date', 'Name', 'Distance_km', 'Duration_HHMMSS', 'Speed_km_h']].copy()
+            display_df_r = display_df_r.sort_values(by='Date', ascending=False)
+            display_df_r['Date'] = display_df_r['Date'].dt.strftime('%Y-%m-%d')
+            display_df_r['Speed_km_h'] = display_df_r['Speed_km_h'].apply(lambda x: f"{x:.1f}")
+            display_df_r = display_df_r.rename(columns={'Distance_km': 'Distance (km)', 'Duration_HHMMSS': 'Duration', 'Speed_km_h': 'Speed (km/h)'})
+
             if st.session_state.edit_mode_ride:
-                display_rides.insert(0, "Delete", False)
-                edited_rides = st.data_editor(
-                    display_rides, 
-                    hide_index=True, 
+                display_df_r.insert(0, "Delete", False)
+                edited_df_r = st.data_editor(
+                    display_df_r,
                     use_container_width=True,
+                    hide_index=True,
                     column_config={
                         "Delete": st.column_config.CheckboxColumn("🗑️ Delete", default=False),
-                        "ID": None # Ukrywamy ID, jest potrzebne tylko w tle do usuwania
+                        "ID": None
                     }
                 )
                 
-                selected_ride_ids = edited_rides[edited_rides['Delete'] == True]['ID'].tolist()
+                selected_ids_r = edited_df_r[edited_df_r['Delete'] == True]['ID'].tolist()
                 
-                if len(selected_ride_ids) > 0:
-                    if st.button("🚨 Delete Selected", key="del_ride_btn"):
-                        df_to_save = df[~df['ID'].isin(selected_ride_ids)]
-                        df_to_save.to_csv('my_workouts.csv', index=False)
+                if len(selected_ids_r) > 0:
+                    if st.button("🚨 Delete Selected Rides", key="del_ride_btn"):
+                        for w_id in selected_ids_r:
+                            # Usuwanie rowerów prosto z Supabase!
+                            supabase.table("workouts").delete().eq("ID", w_id).execute()
                         st.session_state.edit_mode_ride = False
-                        st.success("Deleted successfully!")
+                        st.success("Rides deleted successfully!")
                         import time as t
                         t.sleep(1)
                         st.rerun()
             else:
-                # Jeśli nie jesteśmy w trybie edycji, po prostu pokazujemy tabelę bez kolumny ID
-                st.dataframe(display_rides.drop(columns=['ID']), hide_index=True, use_container_width=True)
+                st.dataframe(display_df_r.drop(columns=['ID']), use_container_width=True, hide_index=True)
+
         else:
-            st.info("No cycling workouts found.")
-
-# ==========================================
-# 🏆 EKRAN REKORDÓW
-# ==========================================
-elif st.session_state.current_view == 'Records':
-    st.markdown("<style>div.stButton > button { background: #333 !important; color: white !important; border-radius: 8px !important; aspect-ratio: auto !important; padding: 10px !important;}</style>", unsafe_allow_html=True)
-    
-    if st.button("⬅️ Back to Start", key="back_records"):
-        go_to_view('Home')
-        st.rerun()
-        
-    st.header("Personal Bests")
-    
-    if not df.empty:
-        # --- REKORDY BIEGOWE ---
-        runs = df[df['Type'] == 'Run'].copy()
-        if not runs.empty:
-            st.markdown("Running Records")
-            longest_run = runs.loc[runs['Distance_km'].idxmax()]
-            longest_time = runs.loc[runs['Duration_min'].idxmax()]
-            
-            valid_pace_runs = runs[runs['Distance_km'] > 0]
-            if not valid_pace_runs.empty:
-                best_pace_run = valid_pace_runs.loc[valid_pace_runs['Pace_min_km'].idxmin()]
-            else:
-                best_pace_run = None
-
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                st.success("Longest Distance")
-                date_str = longest_run['Date'].strftime('%Y-%m-%d')
-                st.metric(label=f"{longest_run['Name']} ({date_str})", value=f"{longest_run['Distance_km']:.2f} km")
-            with col2:
-                st.info("Longest Time")
-                date_str = longest_time['Date'].strftime('%Y-%m-%d')
-                st.metric(label=f"{longest_time['Name']} ({date_str})", value=f"{longest_time['Duration_min']:.2f} min")
-            with col3:
-                st.warning("⚡ Best Pace")
-                if best_pace_run is not None:
-                    date_str = best_pace_run['Date'].strftime('%Y-%m-%d')
-                    st.metric(label=f"{best_pace_run['Name']} ({date_str})", value=f"{format_pace(best_pace_run['Pace_min_km'])} /km")
-                else:
-                    st.metric(label="N/A", value="-:-- /km")
-        else:
-            st.info("Brak treningów biegowych, żeby wyliczyć rekordy. 🏃‍♂️")
-
-        st.divider()
-
-        # --- REKORDY ROWEROWE ---
-        rides = df[df['Type'] == 'Ride'].copy()
-        if not rides.empty:
-            st.markdown("Cycling Records")
-            # Obliczamy prędkość w km/h, jeśli jej nie ma
-            rides['Speed_km_h'] = rides['Distance_km'] / (rides['Duration_min'] / 60)
-            
-            longest_ride = rides.loc[rides['Distance_km'].idxmax()]
-            longest_ride_time = rides.loc[rides['Duration_min'].idxmax()]
-            best_speed_ride = rides.loc[rides['Speed_km_h'].idxmax()]
-            
-            # Funkcja do ładnego formatowania czasu dla roweru (HH:MM:SS)
-            def format_ride_duration(total_min):
-                h = int(total_min // 60)
-                m = int(total_min % 60)
-                s = int((total_min * 60) % 60)
-                return f"{h:02d}:{m:02d}:{s:02d}"
-
-            r_col1, r_col2, r_col3 = st.columns(3)
-            with r_col1:
-                st.success("Longest Distance")
-                date_str = longest_ride['Date'].strftime('%Y-%m-%d')
-                st.metric(label=f"{longest_ride['Name']} ({date_str})", value=f"{longest_ride['Distance_km']:.2f} km")
-            with r_col2:
-                st.info("Longest Time")
-                date_str = longest_ride_time['Date'].strftime('%Y-%m-%d')
-                st.metric(label=f"{longest_ride_time['Name']} ({date_str})", value=format_ride_duration(longest_ride_time['Duration_min']))
-            with r_col3:
-                st.warning("⚡ Best Avg Speed")
-                date_str = best_speed_ride['Date'].strftime('%Y-%m-%d')
-                st.metric(label=f"{best_speed_ride['Name']} ({date_str})", value=f"{best_speed_ride['Speed_km_h']:.1f} km/h")
-        else:
-            st.info("Brak treningów rowerowych, żeby wyliczyć rekordy. 🚴‍♂️")
-
-        st.divider()
-        st.markdown("<p style='text-align: center; color: gray;'>Keep pushing your limits! 🔥</p>", unsafe_allow_html=True)
-        
+            st.info("Nie znaleziono żadnych treningów rowerowych. Czas wsiąść na rower! 🚴‍♂️")
     else:
-        st.warning("Brak danych! Upewnij się, że plik my_workouts.csv nie jest pusty.")
+        st.warning("Brak danych! Baza danych jest pusta.")

@@ -30,3 +30,8 @@ dodanie commita na github:  git commit -m "Nazwa commita"
 pushowanie na github: git push -u origin main
 
 startowanie strony: streamlit run app.py
+
+Supabase:
+Database password:  P1erwszy_Projekt_CieMa14/2_Skoczek14_@gmail.com
+API URL: https://bwhqtbddmixijhbxcnfu.supabase.co
+API KEY (anon , public): eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJ3aHF0YmRkbWl4aWpoYnhjbmZ1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUzMjcyMzMsImV4cCI6MjA5MDkwMzIzM30.6p-RwbrwvaDDtqrI6K-LBD_Dk5M-b997HyW3IlEFWog
