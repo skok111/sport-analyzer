@@ -42,22 +42,34 @@ if not st.session_state.logged_in:
         
         # --- ZAKŁADKA LOGOWANIA ---
         with tab1:
-            login_email = st.text_input("Email address", key="log_email")
+            login_email = st.text_input("Email address", key="log_email").strip() # Dodane .strip()
             login_pass = st.text_input("Password", type="password", key="log_pass")
             
             if st.button("Log In", use_container_width=True, type="primary"):
                 try:
                     # Prawdziwe logowanie przez Supabase
                     response = supabase.auth.sign_in_with_password({"email": login_email, "password": login_pass})
+                    
+                    # 🚨 TEGO BRAKOWAŁO: Zapisujemy stan zalogowania do pamięci!
                     st.session_state.logged_in = True
-                    # Zapisujemy ID użytkownika w sesji (bardzo ważne do kolejnych kroków!)
-                    st.session_state.user_id = response.user.id 
+                    st.session_state.user_id = response.user.id
+                    
+                    # ==========================================
+                    # SPRAWDZAMY CZY POMINĄĆ ONBOARDING
+                    # ==========================================
+                    check_data = supabase.table("workouts").select("ID").eq("user_id", st.session_state.user_id).limit(1).execute()
+                
+                    if len(check_data.data) > 0:
+                        st.session_state.onboarding_done = True
+                    else:
+                        st.session_state.onboarding_done = False
+                        
                     st.rerun()
                 except Exception as e:
+                    # Jeśli chcesz widzieć prawdziwe błędy zamiast ukrytych, możesz zmienić ten napis na f"Błąd: {e}"
                     st.error("Incorrect email or password!")
             
             st.markdown("<br>", unsafe_allow_html=True)
-            # Atrapa przycisku Google (czeka na swój moment)
             st.button("🌐 Log in with Google (Coming soon)", use_container_width=True, disabled=True)
             
             st.markdown("<br>", unsafe_allow_html=True)
@@ -65,7 +77,7 @@ if not st.session_state.logged_in:
 
         # --- ZAKŁADKA REJESTRACJI ---
         with tab2:
-            reg_email = st.text_input("Email address", key="reg_email")
+            reg_email = st.text_input("Email address", key="reg_email").strip() # Dodane .strip()
             reg_pass = st.text_input("Password", type="password", key="reg_pass")
             reg_pass_conf = st.text_input("Confirm Password", type="password", key="reg_pass_conf")
             
@@ -195,6 +207,91 @@ def format_pace(decimal_pace):
     secs = int(round((decimal_pace - mins) * 60))
     return f"{mins}:{secs:02d}"
 
+# --- FUNKCJA DO SYNCHRONIZACJI ZE STRAVĄ ---
+def sync_strava_to_supabase(user_id):
+    try:
+        client_id = st.secrets["strava"]["client_id"]
+        client_secret = st.secrets["strava"]["client_secret"]
+        refresh_token = st.secrets["strava"]["refresh_token"]
+        
+        # 1. Odświeżanie tokena (Twój kod)
+        auth_url = "https://www.strava.com/oauth/token"
+        payload = {
+            'client_id': client_id,
+            'client_secret': client_secret,
+            'refresh_token': refresh_token,
+            'grant_type': 'refresh_token'
+        }
+        resp = requests.post(auth_url, data=payload)
+        access_token = resp.json().get('access_token')
+        
+        if not access_token:
+            return False, "Nie udało się pobrać tokena. Sprawdź klucze w secrets.toml."
+
+        # 2. Sprawdzamy co już mamy w chmurze, żeby nie dublować (Zamiast czytania z CSV!)
+        existing_workouts = supabase.table("workouts").select("ID").eq("user_id", user_id).execute()
+        existing_ids = [str(w['ID']) for w in existing_workouts.data]
+
+        # 3. Pobieranie ze Stravy (Twój kod)
+        headers = {"Authorization": f"Bearer {access_token}"}
+        url = "https://www.strava.com/api/v3/athlete/activities"
+        
+        all_new_activities = []
+        page = 1
+        keep_fetching = True
+
+        while keep_fetching:
+            response = requests.get(url, headers=headers, params={'per_page': 30, 'page': page})
+            if response.status_code != 200:
+                break
+            batch = response.json()
+            
+            if not batch:
+                break
+                
+            for activity in batch:
+                if str(activity['id']) in existing_ids:
+                    keep_fetching = False # Znaleźliśmy trening, który już jest w bazie - stop!
+                    break
+                all_new_activities.append(activity)
+            
+            if keep_fetching:
+                page += 1
+
+        # 4. Zapis do Supabase (Zamiast CSV)
+        if all_new_activities:
+            all_new_activities.reverse() # Od najstarszych do najnowszych
+            inserted_count = 0
+            
+            for activity in all_new_activities:
+                # Ograniczamy na razie tylko do biegów i rowerów
+                if activity['type'] not in ['Run', 'Ride']:
+                    continue
+                    
+                distance_km = round(activity['distance'] / 1000, 2)
+                duration_min = round(activity['moving_time'] / 60, 2)
+                pace = duration_min / distance_km if distance_km > 0 else 0
+                
+                new_workout = {
+                    "ID": activity['id'],
+                    "Date": activity['start_date_local'][:10],
+                    "Name": activity['name'],
+                    "Type": activity['type'],
+                    "Distance_km": distance_km,
+                    "Duration_min": duration_min,
+                    "Pace_min_km": round(pace, 2),
+                    "user_id": user_id
+                }
+                
+                supabase.table("workouts").upsert(new_workout).execute()
+                inserted_count += 1
+                
+            return True, f"Zsynchronizowano {inserted_count} nowych treningów ze Stravy! 🚴‍♂️🏃‍♂️"
+        else:
+            return True, "Wszystko jest aktualne! Brak nowych treningów do pobrania. 😎"
+
+    except Exception as e:
+        return False, f"Błąd synchronizacji: {e}"
 # 3. Wczytanie danych i ustawień
 user_settings = load_settings()
 
@@ -211,6 +308,26 @@ if st.session_state.logged_in and 'user_id' in st.session_state:
         df = pd.DataFrame(columns=['ID', 'Date', 'Name', 'Type', 'Distance_km', 'Duration_min', 'Pace_min_km', 'user_id'])
 else:
     df = pd.DataFrame(columns=['ID', 'Date', 'Name', 'Type', 'Distance_km', 'Duration_min', 'Pace_min_km', 'user_id'])
+
+# ==========================================
+# 🙋‍♂️ PASEK BOCZNY (PROFIL UŻYTKOWNIKA)
+# ==========================================
+with st.sidebar:
+    st.markdown("### Your Profile")
+    st.write("Logged in safely. 🔒")
+    st.divider()
+    
+    if st.button("🚪 Log Out", use_container_width=True, type="secondary"):
+        try:
+            supabase.auth.sign_out()
+        except Exception as e:
+            pass # Ignorujemy błędy wygasłej sesji
+            
+        # Czyszczenie sesji i powrót do ekranu logowania
+        st.session_state.logged_in = False
+        if 'user_id' in st.session_state:
+            del st.session_state['user_id']
+        st.rerun()
 
 # ==========================================
 # 🏠 EKRAN GŁÓWNY: KOMPAKTOWA SIATKA 3x2
@@ -337,7 +454,15 @@ if st.session_state.current_view == 'Home':
     with col6:
         st.markdown('<span class="css-hook-sync"></span>', unsafe_allow_html=True)
         if st.button("🔄 STRAVA SYNC\nFetch data", key="btn_sync", use_container_width=True):
-            st.toast("Syncing with Strava... 🔄")
+            with st.spinner("Łączenie ze Stravą... ⏳"):
+                success, message = sync_strava_to_supabase(st.session_state.user_id)
+                if success:
+                    st.success(message)
+                else:
+                    st.error(message)
+                import time
+                time.sleep(2) # Pokazuje komunikat przez 2 sekundy
+                st.rerun()    # Odświeża aplikację, żeby pokazać nowe dane!
 
     # === DASHBOARD ===
     st.divider()
@@ -780,3 +905,100 @@ elif st.session_state.current_view == 'Ride':
             st.info("Nie znaleziono żadnych treningów rowerowych. Czas wsiąść na rower! 🚴‍♂️")
     else:
         st.warning("Brak danych! Baza danych jest pusta.")
+# ==========================================
+# 🏆 EKRAN REKORDÓW (RECORDS)
+# ==========================================
+elif st.session_state.current_view == 'Records':
+    st.markdown("<style>div.stButton > button { background: #333 !important; color: white !important; border-radius: 8px !important; aspect-ratio: auto !important; padding: 10px !important;}</style>", unsafe_allow_html=True)
+    
+    if st.button("⬅️ Back to Start", key="back_records"):
+        go_to_view('Home')
+        st.rerun()
+        
+    st.header("🏆 Personal Records")
+    st.write("Your best efforts and longest distances across all workouts.")
+    
+    if df.empty:
+        st.info("No data available. Add some workouts to see your records!")
+    else:
+        tab_run, tab_ride = st.tabs(["🏃‍♂️ Running", "🚴‍♂️ Cycling"])
+        
+        # --- ZAKŁADKA BIEGANIA ---
+        with tab_run:
+            runs = df[df['Type'] == 'Run'].copy()
+            if not runs.empty:
+                st.subheader("Longest Run 👑")
+                longest_run = runs.loc[runs['Distance_km'].idxmax()]
+                date_str = str(longest_run['Date'])[:10]
+                st.success(f"**{longest_run['Distance_km']:.2f} km** | {longest_run['Name']} ({date_str})")
+                
+                st.divider()
+                st.subheader("Distance Milestones ⏱️")
+                # Zamiast 20 i 40 dałem standardowe dystanse: Półmaraton i Maraton!
+                run_milestones = [5, 10, 21.1, 42.2] 
+                
+                for milestone in run_milestones:
+                    # Filtrujemy dystans i od razu wyrzucamy treningi bez zapisanego tempa
+                    qualifying_runs = runs[runs['Distance_km'] >= milestone].dropna(subset=['Pace_min_km'])
+                    if not qualifying_runs.empty:
+                        # Znajdujemy bieg z najlepszym (najniższym) tempem
+                        best_run = qualifying_runs.loc[qualifying_runs['Pace_min_km'].idxmin()]
+                        record_time_min = best_run['Pace_min_km'] * milestone
+                        
+                        # Formatowanie czasu (HH:MM:SS)
+                        h = int(record_time_min // 60)
+                        m = int(record_time_min % 60)
+                        s = int((record_time_min * 60) % 60)
+                        formatted_time = f"{h:02d}:{m:02d}:{s:02d}" if h > 0 else f"{m:02d}:{s:02d}"
+                        
+                        milestone_name = f"{milestone}k"
+                        if milestone == 21.1: milestone_name = "Half Marathon"
+                        elif milestone == 42.2: milestone_name = "Marathon"
+                        
+                        date_str = str(best_run['Date'])[:10]
+                        
+                        col1, col2 = st.columns([1, 2])
+                        with col1:
+                            st.metric(label=milestone_name, value=formatted_time)
+                        with col2:
+                            # Wyświetlamy kontekst z jakiego treningu to zostało wyciągnięte
+                            st.write(f"<br><span style='color:gray'>Achieved during: **{best_run['Name']}** ({date_str}) <br>Avg Pace: {format_pace(best_run['Pace_min_km'])} /km</span>", unsafe_allow_html=True)
+            else:
+                st.info("No running data yet. Time to hit the track! 👟")
+                
+        # --- ZAKŁADKA ROWEROWA ---
+        with tab_ride:
+            rides = df[df['Type'] == 'Ride'].copy()
+            if not rides.empty:
+                st.subheader("Longest Ride 👑")
+                longest_ride = rides.loc[rides['Distance_km'].idxmax()]
+                date_str = str(longest_ride['Date'])[:10]
+                st.success(f"**{longest_ride['Distance_km']:.2f} km** | {longest_ride['Name']} ({date_str})")
+                
+                st.divider()
+                st.subheader("Distance Milestones ⏱️")
+                ride_milestones = [20, 50, 100]
+                
+                for milestone in ride_milestones:
+                    # Filtrujemy dystans i od razu wyrzucamy treningi bez zapisanego tempa
+                    qualifying_rides = rides[rides['Distance_km'] >= milestone].dropna(subset=['Pace_min_km'])
+                    if not qualifying_rides.empty:
+                        best_ride = qualifying_rides.loc[qualifying_rides['Pace_min_km'].idxmin()]
+                        record_time_min = best_ride['Pace_min_km'] * milestone
+                        # Liczymy średnią prędkość (km/h) oryginalnego treningu
+                        avg_speed = best_ride['Distance_km'] / (best_ride['Duration_min'] / 60)
+                        
+                        h = int(record_time_min // 60)
+                        m = int(record_time_min % 60)
+                        s = int((record_time_min * 60) % 60)
+                        formatted_time = f"{h:02d}:{m:02d}:{s:02d}"
+                        
+                        date_str = str(best_ride['Date'])[:10]
+                        
+                        col1, col2 = st.columns([1, 2])
+                        with col1:
+                            st.metric(label=f"{milestone} km", value=formatted_time)
+                        with col2:
+                            st.write(f"<br><span style='color:gray'>Achieved during: **{best_ride['Name']}** ({date_str}) <br>Avg Speed: {avg_speed:.1f} km/h</span>", unsafe_allow_html=True)
+            else:
+                st.info("No cycling data yet. Grab your bike! 🚲")
