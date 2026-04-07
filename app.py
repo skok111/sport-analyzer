@@ -66,11 +66,21 @@ if not st.session_state.logged_in:
                         
                     st.rerun()
                 except Exception as e:
-                    # Jeśli chcesz widzieć prawdziwe błędy zamiast ukrytych, możesz zmienić ten napis na f"Błąd: {e}"
                     st.error("Incorrect email or password!")
             
             st.markdown("<br>", unsafe_allow_html=True)
-            st.button("🌐 Log in with Google (Coming soon)", use_container_width=True, disabled=True)
+            
+            # --- PRAWDZIWE LOGOWANIE GOOGLE ---
+            try:
+                google_auth = supabase.auth.sign_in_with_oauth({
+                    "provider": "google",
+                    "options": {
+                        "redirect_to": "https://sport-analyzer-nc5yuqge2txqzwgtarsk6g.streamlit.app" 
+                    }
+                })
+                st.link_button("🌐 Log in with Google", google_auth.url, use_container_width=True)
+            except Exception as e:
+                st.error(f"Error generating Google login link: {e}")
             
             st.markdown("<br>", unsafe_allow_html=True)
             st.markdown("<div style='text-align: center;'>[Forgot password?](#)</div>", unsafe_allow_html=True)
@@ -951,7 +961,7 @@ elif st.session_state.current_view == 'Records':
                         s = int((record_time_min * 60) % 60)
                         formatted_time = f"{h:02d}:{m:02d}:{s:02d}" if h > 0 else f"{m:02d}:{s:02d}"
                         
-                        milestone_name = f"{milestone}k"
+                        milestone_name = f"{milestone}km"
                         if milestone == 21.1: milestone_name = "Half Marathon"
                         elif milestone == 42.2: milestone_name = "Marathon"
                         
