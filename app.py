@@ -95,7 +95,7 @@ if not st.session_state.logged_in:
             
             st.markdown("<br>", unsafe_allow_html=True)
             
-            # --- PRAWDZIWE LOGOWANIE GOOGLE ---
+# --- PRAWDZIWE LOGOWANIE GOOGLE ---
             try:
                 google_auth = supabase.auth.sign_in_with_oauth({
                     "provider": "google",
@@ -103,7 +103,28 @@ if not st.session_state.logged_in:
                         "redirect_to": "https://sport-analyzer.streamlit.app/" 
                     }
                 })
-                st.link_button("🌐 Log in with Google", google_auth.url, use_container_width=True)
+                
+                # NOWY PRZYCISK: Wymusza otwarcie w tej samej karcie (target="_self")
+                button_html = f"""
+                <a href="{google_auth.url}" target="_self" style="
+                    display: block; 
+                    width: 100%; 
+                    padding: 8px 16px; 
+                    text-align: center; 
+                    background-color: #ffffff; 
+                    color: #31333F; 
+                    text-decoration: none; 
+                    border-radius: 8px; 
+                    border: 1px solid #d4d4d8;
+                    font-family: 'Source Sans Pro', sans-serif; 
+                    font-weight: 400;
+                    box-sizing: border-box;
+                    transition: border-color 0.2s, color 0.2s;">
+                    🌐 Log in with Google
+                </a>
+                """
+                st.markdown(button_html, unsafe_allow_html=True)
+
             except Exception as e:
                 st.error(f"Error generating Google login link: {e}")
             
