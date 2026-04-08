@@ -103,27 +103,13 @@ if not st.session_state.logged_in:
                         "redirect_to": "https://sport-analyzer.streamlit.app/" 
                     }
                 })
-                
-# NOWY PRZYCISK: Wymusza otwarcie w głównym oknie (target="_top")
-                button_html = f"""
-                <a href="{google_auth.url}" target="_top" style="
-                    display: block; 
-                    width: 100%; 
-                    padding: 8px 16px; 
-                    text-align: center; 
-                    background-color: #ffffff; 
-                    color: #31333F; 
-                    text-decoration: none; 
-                    border-radius: 8px; 
-                    border: 1px solid #d4d4d8;
-                    font-family: 'Source Sans Pro', sans-serif; 
-                    font-weight: 400;
-                    box-sizing: border-box;
-                    transition: border-color 0.2s, color 0.2s;">
-                    🌐 Log in with Google
-                </a>
-                """
-                st.markdown(button_html, unsafe_allow_html=True)
+                # Wracamy do oficjalnego przycisku Streamlit - gwarantuje brak błędów
+                st.link_button("🌐 Log in with Google", google_auth.url, use_container_width=True)
+            except Exception as e:
+                st.error(f"Error generating Google login link: {e}")
+            
+            st.markdown("<br>", unsafe_allow_html=True)
+            st.markdown("<div style='text-align: center;'>[Forgot password?](#)</div>", unsafe_allow_html=True)
 
             except Exception as e:
                 st.error(f"Error generating Google login link: {e}")
