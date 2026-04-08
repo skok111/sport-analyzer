@@ -711,21 +711,30 @@ elif st.session_state.current_view == 'Run':
             st.divider() 
             st.markdown("Distance Over Time (Last 7 Days)")
             
+            # --- KLUCZOWA POPRAWKA: Zamieniamy tekst na prawdziwe daty ---
+            runs['Date'] = pd.to_datetime(runs['Date'])
+            
             today = pd.Timestamp.today().normalize()
             seven_days_ago = today - pd.Timedelta(days=6)
-            last_7_days = pd.DataFrame({'Date': pd.date_range(start=seven_days_ago, end=today)})
+            
+            # Filtrujemy treningi z ostatnich 7 dni
             recent_runs = runs[(runs['Date'] >= seven_days_ago) & (runs['Date'] <= today)]
-            daily_dist = recent_runs.groupby('Date')['Distance_km'].sum().reset_index()
             
-            chart_data = pd.merge(last_7_days, daily_dist, on='Date', how='left').fillna({'Distance_km': 0})
-            chart_data['Date_str'] = chart_data['Date'].dt.strftime('%m-%d')
-            
-            chart = alt.Chart(chart_data).mark_bar(color="#2D89EF").encode(
-                x=alt.X('Date_str:O', title='Date (MM-DD)', axis=alt.Axis(labelAngle=0)),
-                y=alt.Y('Distance_km:Q', title='Distance (km)'),
-                tooltip=[alt.Tooltip('Date_str:O', title='Date'), alt.Tooltip('Distance_km:Q', title='Distance (km)')]
-            )
-            st.altair_chart(chart, use_container_width=True)
+            if not recent_runs.empty:
+                last_7_days = pd.DataFrame({'Date': pd.date_range(start=seven_days_ago, end=today)})
+                daily_dist = recent_runs.groupby('Date')['Distance_km'].sum().reset_index()
+                
+                chart_data = pd.merge(last_7_days, daily_dist, on='Date', how='left').fillna({'Distance_km': 0})
+                chart_data['Date_str'] = chart_data['Date'].dt.strftime('%m-%d')
+                
+                chart = alt.Chart(chart_data).mark_bar(color="#2D89EF").encode(
+                    x=alt.X('Date_str:O', title='Date (MM-DD)', axis=alt.Axis(labelAngle=0)),
+                    y=alt.Y('Distance_km:Q', title='Distance (km)'),
+                    tooltip=[alt.Tooltip('Date_str:O', title='Date'), alt.Tooltip('Distance_km:Q', title='Distance (km)')]
+                )
+                st.altair_chart(chart, use_container_width=True)
+            else:
+                st.info("No runs in the last 7 days. Time to lace up your shoes! 🏃‍♂️")
             
             st.divider()
             
