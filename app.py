@@ -106,7 +106,7 @@ if not st.session_state.logged_in:
                 
                 # NOWY PRZYCISK: Wymusza otwarcie w tej samej karcie (target="_self")
                 button_html = f"""
-                <a href="{google_auth.url}" target="_self" style="
+                <a href="{google_auth.url}" target="_top" style="
                     display: block; 
                     width: 100%; 
                     padding: 8px 16px; 
