@@ -21,11 +21,36 @@ supabase = init_connection()
 # 🔒 SYSTEM LOGOWANIA I ONBOARDINGU
 # ==========================================
 
-# 1. Inicjalizacja zmiennych sesyjnych
+# --- 0. ŁAPANIE "BILETU WSTĘPU" OD GOOGLE ---
+if "code" in st.query_params:
+    try:
+        # Wymieniamy kod z paska adresu na pełną sesję użytkownika
+        auth_code = st.query_params["code"]
+        response = supabase.auth.exchange_code_for_session({"auth_code": auth_code})
+        
+        # Zapisujemy dane logowania w pamięci Streamlita
+        st.session_state.logged_in = True
+        st.session_state.user_id = response.user.id
+        
+        # Sprzątamy pasek adresu, żeby znowu był czysty i profesjonalny
+        st.query_params.clear()
+    except Exception as e:
+        pass
+
+# --- 1. INICJALIZACJA ZMIENNYCH SESYJNYCH ---
 if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
 if 'onboarding_done' not in st.session_state:
     st.session_state.onboarding_done = False
+
+# --- 1.5. SPRAWDZANIE ONBOARDINGU (DLA ZALOGOWANYCH PRZEZ GOOGLE) ---
+if st.session_state.logged_in and not st.session_state.onboarding_done:
+    try:
+        check_data = supabase.table("workouts").select("ID").eq("user_id", st.session_state.user_id).limit(1).execute()
+        if len(check_data.data) > 0:
+            st.session_state.onboarding_done = True
+    except Exception as e:
+        pass
 
 # 2. EKRAN LOGOWANIA
 # 2. EKRAN LOGOWANIA / REJESTRACJI
