@@ -104,7 +104,7 @@ if not st.session_state.logged_in:
                     }
                 })
                 
-                # NOWY PRZYCISK: Wymusza otwarcie w tej samej karcie (target="_self")
+# NOWY PRZYCISK: Wymusza otwarcie w głównym oknie (target="_top")
                 button_html = f"""
                 <a href="{google_auth.url}" target="_top" style="
                     display: block; 
