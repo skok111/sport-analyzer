@@ -75,7 +75,7 @@ if not st.session_state.logged_in:
                 google_auth = supabase.auth.sign_in_with_oauth({
                     "provider": "google",
                     "options": {
-                        "redirect_to": "https://sport-analyzer-nc5yuqge2txqzwgtarsk6g.streamlit.app" 
+                        "redirect_to": "https://sport-analyzer.streamlit.app/" 
                     }
                 })
                 st.link_button("🌐 Log in with Google", google_auth.url, use_container_width=True)
