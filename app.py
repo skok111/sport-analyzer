@@ -94,7 +94,6 @@ if not st.session_state.logged_in:
                     st.error("Incorrect email or password!")
             
             st.markdown("<br>", unsafe_allow_html=True)
-            
 # --- PRAWDZIWE LOGOWANIE GOOGLE ---
             try:
                 google_auth = supabase.auth.sign_in_with_oauth({
@@ -105,12 +104,6 @@ if not st.session_state.logged_in:
                 })
                 # Wracamy do oficjalnego przycisku Streamlit - gwarantuje brak błędów
                 st.link_button("🌐 Log in with Google", google_auth.url, use_container_width=True)
-            except Exception as e:
-                st.error(f"Error generating Google login link: {e}")
-            
-            st.markdown("<br>", unsafe_allow_html=True)
-            st.markdown("<div style='text-align: center;'>[Forgot password?](#)</div>", unsafe_allow_html=True)
-
             except Exception as e:
                 st.error(f"Error generating Google login link: {e}")
             
